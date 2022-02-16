@@ -13,6 +13,7 @@ import { Status } from './enum/status.enum';
 import { AppState } from './interface/app-state';
 import { CustomResponse } from './interface/custom-response';
 import { Server } from './interface/server';
+import { NotificationService } from './service/notification.service';
 import { ServerService } from './service/server.service';
 
 @Component({
@@ -30,11 +31,15 @@ export class AppComponent implements OnInit {
   private isLoading = new BehaviorSubject<boolean>(false);
   isLoading$ = this.isLoading.asObservable();
 
-  constructor(private serverService: ServerService) {}
+  constructor(
+    private serverService: ServerService,
+    private notifier: NotificationService
+  ) {}
 
   ngOnInit(): void {
     this.appState$ = this.serverService.servers$.pipe(
       map((response) => {
+        this.notifier.onDefault(response.message);
         this.dataSubject.next(response);
         return {
           dataState: DataState.LOADED_STATE,
@@ -46,6 +51,7 @@ export class AppComponent implements OnInit {
       }),
       startWith({ dataState: DataState.LOADING_STATE }),
       catchError((error: string) => {
+        this.notifier.onError(error)
         return of({ dataState: DataState.ERROR_STATE, error });
       })
     );
@@ -55,6 +61,7 @@ export class AppComponent implements OnInit {
     this.filterSubject.next(ipAddress);
     this.appState$ = this.serverService.ping$(ipAddress).pipe(
       map((response) => {
+        this.notifier.onDefault(response.message);
         this.dataSubject.value.data.servers[
           this.dataSubject.value.data.servers.findIndex((server) => {
             server.id === response.data.server.id;
@@ -71,6 +78,7 @@ export class AppComponent implements OnInit {
         appData: this.dataSubject.value,
       }),
       catchError((error: string) => {
+        this.notifier.onError(error)
         this.filterSubject.next('');
         return of({ dataState: DataState.ERROR_STATE, error });
       })
@@ -81,6 +89,7 @@ export class AppComponent implements OnInit {
     this.isLoading.next(true);
     this.appState$ = this.serverService.save$(<Server>serverForm.value).pipe(
       map((response) => {
+        this.notifier.onDefault(response.message);
         this.dataSubject.next({
           ...response,
           data: {
@@ -103,6 +112,7 @@ export class AppComponent implements OnInit {
         appData: this.dataSubject.value,
       }),
       catchError((error: string) => {
+        this.notifier.onError(error)
         this.isLoading.next(false);
         return of({ dataState: DataState.ERROR_STATE, error });
       })
@@ -115,6 +125,7 @@ export class AppComponent implements OnInit {
       .filter$(status, this.dataSubject.value)
       .pipe(
         map((response) => {
+          this.notifier.onDefault(response.message);
           return {
             dataState: DataState.LOADED_STATE,
             appData: response,
@@ -125,8 +136,46 @@ export class AppComponent implements OnInit {
           appData: this.dataSubject.value,
         }),
         catchError((error: string) => {
+          this.notifier.onError(error)
           return of({ dataState: DataState.ERROR_STATE, error });
         })
       );
+  }
+
+  deleteServer(server: Server): void {
+    this.serverService.delete$(server.id).pipe(
+      map((response) => {
+        this.notifier.onDefault(response.message);
+        this.dataSubject.next({
+          ...response,
+          data: {
+            servers: this.dataSubject.value.data.servers.filter((s) => {
+              s.id !== server.id;
+            }),
+          },
+        });
+      }),
+      startWith({
+        dataState: DataState.LOADED_STATE,
+        appData: this.dataSubject.value,
+      }),
+      catchError((error: string) => {
+        this.notifier.onError(error)
+        this.isLoading.next(false);
+        return of({ dataState: DataState.ERROR_STATE, error });
+      })
+    );
+  }
+  printReport(): void {
+    this.notifier.onDefault('report donwloaded');
+    const dataType = 'application/vnd.ms-excel.sheet.macroEnabled.12';
+    const tableSelect = document.getElementById('servers');
+    const tableHtml = tableSelect.outerHTML.replace(/ /g, '%20');
+    const downloadLink = document.createElement('a');
+    document.body.appendChild(downloadLink);
+    downloadLink.href = 'data:' + dataType + ', ' + tableHtml;
+    downloadLink.download = 'server-report.xls';
+    downloadLink.click();
+    document.body.removeChild(downloadLink);
   }
 }
